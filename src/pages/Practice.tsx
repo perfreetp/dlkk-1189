@@ -18,6 +18,8 @@ import {
   XCircle,
   Clock,
   Loader2,
+  Trophy,
+  RotateCcw,
 } from 'lucide-react'
 
 const difficultyColors: Record<string, string> = {
@@ -64,7 +66,10 @@ export default function Practice() {
   const [hintVisible, setHintVisible] = useState(false)
   const [isBookmarked, setIsBookmarked] = useState(false)
   const [bookmarkId, setBookmarkId] = useState<number | null>(null)
+  const [showCompletion, setShowCompletion] = useState(false)
+  const [completionData, setCompletionData] = useState<{ completed: number; total: number } | null>(null)
   const startTimeRef = useRef(Date.now())
+  const autoNextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (practiceSetId) {
@@ -122,6 +127,32 @@ export default function Practice() {
     await submitSql(currentQuestion.id, sql, duration)
     setRightTab('result')
   }, [sql, currentQuestion])
+
+  useEffect(() => {
+    if (submissionResult?.is_correct && currentPracticeSet && currentQuestion) {
+      const questions = currentPracticeSet.questions
+      const idx = questions.findIndex((q) => q.id === currentQuestion.id)
+      const isLast = idx === questions.length - 1
+
+      if (autoNextTimerRef.current) clearTimeout(autoNextTimerRef.current)
+
+      if (isLast) {
+        autoNextTimerRef.current = setTimeout(() => {
+          const completedCount = submissionResult.completed_count ?? 0
+          const totalCount = submissionResult.total_count ?? questions.length
+          setCompletionData({ completed: completedCount, total: totalCount })
+          setShowCompletion(true)
+        }, 1500)
+      } else {
+        autoNextTimerRef.current = setTimeout(() => {
+          navigateQuestion('next')
+        }, 1500)
+      }
+    }
+    return () => {
+      if (autoNextTimerRef.current) clearTimeout(autoNextTimerRef.current)
+    }
+  }, [submissionResult?.is_correct])
 
   const handleClear = () => {
     setSql('')
@@ -280,6 +311,14 @@ export default function Practice() {
             <div className="mx-3 mb-2 animate-scale-in flex items-center gap-2 px-4 py-2.5 bg-success-emerald/10 border border-success-emerald/30 rounded-lg text-success-emerald text-sm">
               <CheckCircle2 className="w-5 h-5" />
               回答正确！
+              {submissionResult.completed_count !== undefined && submissionResult.total_count !== undefined && (
+                <span className="ml-2 text-text-secondary">
+                  ({submissionResult.completed_count}/{submissionResult.total_count})
+                </span>
+              )}
+              {!isInstructor && currentQuestionIndex !== undefined && totalQuestions > 0 && currentQuestionIndex < totalQuestions - 1 && (
+                <span className="ml-1 text-accent-cyan animate-pulse">→ 自动进入下一题...</span>
+              )}
             </div>
           )}
 
@@ -452,6 +491,53 @@ export default function Practice() {
           </div>
         </div>
       </div>
+
+      {showCompletion && completionData && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-bg-secondary border border-border-dark rounded-2xl p-8 max-w-md w-full mx-4 text-center animate-scale-in">
+            <Trophy className="w-16 h-16 text-warning-amber mx-auto mb-4" />
+            <h2 className="font-display text-2xl font-bold text-text-primary mb-2">练习集完成！</h2>
+            <p className="text-text-secondary text-sm mb-6">
+              {currentPracticeSet?.name || '练习集'}
+            </p>
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="bg-bg-primary rounded-xl p-4">
+                <div className="text-3xl font-display font-bold text-success-emerald">{completionData.completed}</div>
+                <div className="text-xs text-text-secondary mt-1">正确题数</div>
+              </div>
+              <div className="bg-bg-primary rounded-xl p-4">
+                <div className="text-3xl font-display font-bold text-accent-cyan">{completionData.total}</div>
+                <div className="text-xs text-text-secondary mt-1">总题数</div>
+              </div>
+            </div>
+            <div className="bg-bg-primary rounded-xl p-4 mb-6">
+              <div className="text-4xl font-display font-bold text-warning-amber">
+                {completionData.total > 0 ? Math.round((completionData.completed / completionData.total) * 100) : 0}%
+              </div>
+              <div className="text-xs text-text-secondary mt-1">完成率</div>
+            </div>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={() => {
+                  setShowCompletion(false)
+                  if (currentPracticeSet?.questions?.[0]) {
+                    navigate(`/practice/${currentPracticeSet.questions[0].id}?set=${practiceSetId}`)
+                  }
+                }}
+                className="flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-accent-cyan/20 text-accent-cyan text-sm font-medium hover:bg-accent-cyan/30 transition-all"
+              >
+                <RotateCcw className="w-4 h-4" /> 重新练习
+              </button>
+              <button
+                onClick={() => navigate('/courses')}
+                className="flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-bg-tertiary text-text-secondary text-sm font-medium hover:text-text-primary transition-all"
+              >
+                返回课程
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -23,6 +23,7 @@ const instructorNav = [
   { to: '/instructor/questions', label: '题目管理', icon: FileText },
   { to: '/instructor/submissions', label: '提交记录', icon: ClipboardCheck },
   { to: '/instructor/review', label: '批量点评', icon: Users },
+  { to: '/instructor/students', label: '学员分析', icon: Users },
   { to: '/instructor/stats', label: '知识点统计', icon: BarChart3 },
 ]
 

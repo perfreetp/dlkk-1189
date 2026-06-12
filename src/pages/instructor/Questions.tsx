@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { apiFetch } from '@/stores/auth'
 import SqlEditor from '@/components/SqlEditor'
 import DataTable from '@/components/DataTable'
-import { Plus, Search, Play, Trash2, Save } from 'lucide-react'
+import { Plus, Search, Play, Trash2, Save, Upload, Download } from 'lucide-react'
 
 interface KnowledgePoint {
   id: number
@@ -154,6 +154,73 @@ export default function Questions() {
     }
   }
 
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleExportCsv = async () => {
+    const token = localStorage.getItem('token')
+    if (!token) return
+    try {
+      const res = await fetch('/api/questions/export/csv', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'questions.csv'
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      }
+    } catch (err) {
+      console.error('导出失败', err)
+    }
+  }
+
+  const handleImportCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const text = await file.text()
+      const lines = text.split('\n').filter(l => l.trim())
+      if (lines.length < 2) return
+      const headers = lines[0].split(',').map(h => h.trim().replace(/^\uFEFF/, ''))
+      const rows = []
+      for (let i = 1; i < lines.length; i++) {
+        const values: string[] = []
+        let current = ''
+        let inQuotes = false
+        for (const char of lines[i]) {
+          if (char === '"') {
+            inQuotes = !inQuotes
+          } else if (char === ',' && !inQuotes) {
+            values.push(current.trim())
+            current = ''
+          } else {
+            current += char
+          }
+        }
+        values.push(current.trim())
+        const row: Record<string, string> = {}
+        headers.forEach((h, idx) => { row[h] = values[idx] || '' })
+        rows.push(row)
+      }
+      const res = await apiFetch<{ imported: number }>('/api/questions/import/csv', {
+        method: 'POST',
+        body: JSON.stringify({ rows }),
+      })
+      if (res.success && res.data) {
+        alert(`成功导入 ${res.data.imported} 道题目`)
+        if (selected.practice_set_id) fetchQuestionsForSet(selected.practice_set_id)
+      }
+    } catch (err) {
+      console.error('导入失败', err)
+    }
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   const filtered = questions.filter(
     (q) => !search || q.title.toLowerCase().includes(search.toLowerCase())
   )
@@ -162,12 +229,35 @@ export default function Questions() {
     <div className="flex h-[calc(100vh-0px)]">
       <div className="w-72 shrink-0 border-r border-border-dark bg-bg-secondary/30 flex flex-col">
         <div className="p-3 border-b border-border-dark">
-          <button
-            onClick={handleNew}
-            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-accent-cyan/20 text-accent-cyan text-sm font-medium hover:bg-accent-cyan/30 transition-all"
-          >
-            <Plus className="w-4 h-4" /> 新建题目
-          </button>
+          <div className="flex gap-1.5">
+            <button
+              onClick={handleNew}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-accent-cyan/20 text-accent-cyan text-sm font-medium hover:bg-accent-cyan/30 transition-all"
+            >
+              <Plus className="w-4 h-4" /> 新建题目
+            </button>
+            <button
+              onClick={handleExportCsv}
+              className="p-2 rounded-lg bg-bg-tertiary text-text-secondary text-sm hover:text-accent-cyan transition-all"
+              title="导出题库CSV"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 rounded-lg bg-bg-tertiary text-text-secondary text-sm hover:text-accent-cyan transition-all"
+              title="导入CSV"
+            >
+              <Upload className="w-4 h-4" />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv"
+              onChange={handleImportCsv}
+              className="hidden"
+            />
+          </div>
           <div className="mt-2 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-secondary" />
             <input

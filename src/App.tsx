@@ -12,6 +12,7 @@ import InstructorQuestions from '@/pages/instructor/Questions'
 import InstructorSubmissions from '@/pages/instructor/Submissions'
 import InstructorReview from '@/pages/instructor/Review'
 import InstructorStats from '@/pages/instructor/Stats'
+import InstructorStudents from '@/pages/instructor/Students'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, fetchMe, token } = useAuthStore()
@@ -31,9 +32,19 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function InstructorRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuthStore()
+  const { user, isAuthenticated, token, fetchMe } = useAuthStore()
 
-  if (user?.role !== 'instructor') {
+  useEffect(() => {
+    if (token && !user) {
+      fetchMe()
+    }
+  }, [])
+
+  if (!user) {
+    return null
+  }
+
+  if (user.role !== 'instructor') {
     return <Navigate to="/courses" replace />
   }
 
@@ -96,6 +107,14 @@ export default function App() {
             element={
               <InstructorRoute>
                 <InstructorStats />
+              </InstructorRoute>
+            }
+          />
+          <Route
+            path="instructor/students"
+            element={
+              <InstructorRoute>
+                <InstructorStudents />
               </InstructorRoute>
             }
           />

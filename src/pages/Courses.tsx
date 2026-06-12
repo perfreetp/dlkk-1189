@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAppStore, type Course } from '@/stores/app'
-import { Search, ChevronDown, ChevronRight } from 'lucide-react'
+import { useAppStore, type Course, type PracticeSet } from '@/stores/app'
+import { apiFetch } from '@/stores/auth'
+import { Search, ChevronDown, ChevronRight, CheckCircle2, Circle } from 'lucide-react'
 
 const difficultyColors: Record<string, string> = {
   beginner: 'bg-success-emerald/20 text-success-emerald',
@@ -28,7 +29,7 @@ function ProgressRing({ progress, size = 40 }: { progress: number; size?: number
         cy={size / 2}
         r={radius}
         fill="none"
-        stroke="#00d2ff"
+        stroke={progress >= 100 ? '#10b981' : '#00d2ff'}
         strokeWidth={3}
         strokeDasharray={circumference}
         strokeDashoffset={offset}
@@ -38,8 +39,50 @@ function ProgressRing({ progress, size = 40 }: { progress: number; size?: number
   )
 }
 
-function CourseCard({ course, expanded, onToggle }: { course: Course; expanded: boolean; onToggle: () => void }) {
+function CourseCard({
+  course,
+  expanded,
+  onToggle,
+  progressMap,
+  correctQIds,
+  attemptedQIds,
+}: {
+  course: Course
+  expanded: boolean
+  onToggle: () => void
+  progressMap: Record<number, { completed_count: number; total_count: number }>
+  correctQIds: number[]
+  attemptedQIds: number[]
+}) {
   const navigate = useNavigate()
+
+  const courseProgress = course.practice_sets
+    ? course.practice_sets.reduce(
+        (acc, ps) => {
+          const p = progressMap[ps.id]
+          if (p) {
+            acc.completed += p.completed_count
+            acc.total += p.total_count
+          } else {
+            const qCount = ps.questions?.length || 0
+            acc.total += qCount
+          }
+          return acc
+        },
+        { completed: 0, total: 0 }
+      )
+    : { completed: 0, total: 0 }
+
+  const coursePercent = courseProgress.total > 0
+    ? Math.round((courseProgress.completed / courseProgress.total) * 100)
+    : 0
+
+  const getNextQuestion = (ps: PracticeSet) => {
+    if (!ps.questions || ps.questions.length === 0) return null
+    const correctSet = new Set(correctQIds)
+    const nextQ = ps.questions.find((q) => !correctSet.has(q.id))
+    return nextQ || ps.questions[0]
+  }
 
   return (
     <div className="animate-fade-in-up">
@@ -60,8 +103,11 @@ function CourseCard({ course, expanded, onToggle }: { course: Course; expanded: 
           <div className="flex items-center gap-3">
             <div className="text-right">
               <p className="text-xs text-text-secondary">{course.practice_set_count} 个练习集</p>
+              {coursePercent > 0 && (
+                <p className="text-xs text-accent-cyan mt-0.5">{coursePercent}% 完成</p>
+              )}
             </div>
-            <ProgressRing progress={0} />
+            <ProgressRing progress={coursePercent} />
             {expanded ? (
               <ChevronDown className="w-5 h-5 text-text-secondary" />
             ) : (
@@ -73,29 +119,54 @@ function CourseCard({ course, expanded, onToggle }: { course: Course; expanded: 
 
       {expanded && course.practice_sets && (
         <div className="mt-2 ml-6 space-y-2 animate-fade-in-up">
-          {course.practice_sets.map((ps) => (
-            <div
-              key={ps.id}
-              onClick={() => {
-                const firstQ = ps.questions?.[0]
-                if (firstQ) {
-                  navigate(`/practice/${firstQ.id}?set=${ps.id}`)
-                }
-              }}
-              className="bg-bg-secondary/50 border border-border-dark/50 rounded-lg p-4 flex items-center justify-between hover:border-accent-cyan/30 hover:bg-bg-secondary transition-all cursor-pointer"
-            >
-              <div>
-                <h4 className="text-sm font-medium text-text-primary">{ps.name}</h4>
-                <p className="text-xs text-text-secondary mt-0.5">{ps.description}</p>
+          {course.practice_sets.map((ps) => {
+            const p = progressMap[ps.id]
+            const psCompleted = p?.completed_count || 0
+            const psTotal = p?.total_count || ps.questions?.length || 0
+            const psPercent = psTotal > 0 ? Math.round((psCompleted / psTotal) * 100) : 0
+            const nextQ = getNextQuestion(ps)
+            const correctSet = new Set(correctQIds)
+            const attemptedSet = new Set(attemptedQIds)
+
+            return (
+              <div
+                key={ps.id}
+                onClick={() => {
+                  if (nextQ) {
+                    navigate(`/practice/${nextQ.id}?set=${ps.id}`)
+                  }
+                }}
+                className="bg-bg-secondary/50 border border-border-dark/50 rounded-lg p-4 flex items-center justify-between hover:border-accent-cyan/30 hover:bg-bg-secondary transition-all cursor-pointer"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-medium text-text-primary">{ps.name}</h4>
+                    {psPercent >= 100 && (
+                      <CheckCircle2 className="w-4 h-4 text-success-emerald shrink-0" />
+                    )}
+                  </div>
+                  <p className="text-xs text-text-secondary mt-0.5">{ps.description}</p>
+                  <div className="flex items-center gap-3 mt-2">
+                    <div className="flex-1 h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${psPercent >= 100 ? 'bg-success-emerald' : 'bg-accent-cyan'}`}
+                        style={{ width: `${psPercent}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-text-secondary shrink-0">
+                      {psCompleted}/{psTotal}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 ml-3">
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${difficultyColors[ps.difficulty] || difficultyColors.beginner}`}>
+                    {difficultyLabels[ps.difficulty] || ps.difficulty}
+                  </span>
+                  <span className="text-xs text-text-secondary">{ps.questions?.length || 0} 题</span>
+                </div>
               </div>
-              <div className="flex items-center gap-3">
-                <span className={`px-2 py-0.5 rounded text-xs font-medium ${difficultyColors[ps.difficulty] || difficultyColors.beginner}`}>
-                  {difficultyLabels[ps.difficulty] || ps.difficulty}
-                </span>
-                <span className="text-xs text-text-secondary">{ps.questions?.length || 0} 题</span>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
@@ -107,9 +178,22 @@ export default function Courses() {
   const [search, setSearch] = useState('')
   const [diffFilter, setDiffFilter] = useState('')
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [progressMap, setProgressMap] = useState<Record<number, { completed_count: number; total_count: number }>>({})
+  const [correctQIds, setCorrectQIds] = useState<number[]>([])
+  const [attemptedQIds, setAttemptedQIds] = useState<number[]>([])
+
+  const loadProgress = async () => {
+    const res = await apiFetch<any>('/api/courses/progress')
+    if (res.success && res.data) {
+      setProgressMap(res.data.progressMap || {})
+      setCorrectQIds(res.data.correctQuestionIds || [])
+      setAttemptedQIds(res.data.attemptedQuestionIds || [])
+    }
+  }
 
   useEffect(() => {
     fetchCourses()
+    loadProgress()
   }, [])
 
   const handleToggle = async (courseId: number) => {
@@ -165,6 +249,9 @@ export default function Courses() {
             course={course}
             expanded={expandedId === course.id}
             onToggle={() => handleToggle(course.id)}
+            progressMap={progressMap}
+            correctQIds={correctQIds}
+            attemptedQIds={attemptedQIds}
           />
         ))}
         {filtered.length === 0 && (

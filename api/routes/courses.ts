@@ -18,6 +18,47 @@ router.get('/', (req: AuthRequest, res: Response): void => {
   }
 })
 
+router.get('/progress', authenticateToken, (req: AuthRequest, res: Response): void => {
+  try {
+    const db = getSystemDb()
+    const progress = queryToArray(
+      db,
+      'SELECT practice_set_id, completed_count, total_count FROM user_progress WHERE user_id = ?',
+      [req.user.id]
+    )
+    const progressMap: Record<number, { completed_count: number; total_count: number }> = {}
+    for (const p of progress) {
+      progressMap[p.practice_set_id] = { completed_count: p.completed_count, total_count: p.total_count }
+    }
+
+    const submittedQs = queryToArray(
+      db,
+      `SELECT DISTINCT s.question_id, s.is_correct, q.practice_set_id
+       FROM submissions s
+       JOIN questions q ON s.question_id = q.id
+       WHERE s.user_id = ?`,
+      [req.user.id]
+    )
+    const correctSet: Set<number> = new Set()
+    const attemptedSet: Set<number> = new Set()
+    for (const sq of submittedQs) {
+      attemptedSet.add(sq.question_id)
+      if (sq.is_correct) correctSet.add(sq.question_id)
+    }
+
+    res.json({
+      success: true,
+      data: {
+        progressMap,
+        correctQuestionIds: Array.from(correctSet),
+        attemptedQuestionIds: Array.from(attemptedSet),
+      },
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, error: '获取进度失败' })
+  }
+})
+
 router.get('/:id', (req: AuthRequest, res: Response): void => {
   try {
     const db = getSystemDb()

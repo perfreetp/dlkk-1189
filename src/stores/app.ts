@@ -51,6 +51,8 @@ interface SubmissionResult {
   is_correct: boolean
   results: any[]
   reference_result: any[]
+  completed_count?: number
+  total_count?: number
   error?: string
 }
 
