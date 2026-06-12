@@ -1,6 +1,6 @@
 import { Router, type Response } from 'express'
 import bcrypt from 'bcryptjs'
-import { getSystemDb, queryToArray } from '../database.js'
+import { getSystemDb, queryToArray, saveSystemDb } from '../database.js'
 import { authenticateToken, generateToken, type AuthRequest } from '../middleware/auth.js'
 
 const router = Router()
@@ -29,7 +29,7 @@ router.post('/register', async (req: AuthRequest, res: Response): Promise<void> 
 
     const user = queryToArray(db, 'SELECT id, username, role FROM users WHERE username = ?', [username])[0]
     const token = generateToken({ id: user.id, username: user.username, role: user.role })
-
+    saveSystemDb()
     res.status(201).json({ success: true, data: { user, token } })
   } catch (error) {
     res.status(500).json({ success: false, error: '注册失败' })

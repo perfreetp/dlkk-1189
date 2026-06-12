@@ -48,7 +48,7 @@ export default function Bookmarks() {
     const tags = editTags.split(',').map((t) => t.trim()).filter(Boolean)
     await apiFetch(`/api/bookmarks/${b.id}`, {
       method: 'PUT',
-      body: JSON.stringify({ note: editNote, tags_json: JSON.stringify(tags) }),
+      body: JSON.stringify({ note: editNote, tags }),
     })
     setEditingId(null)
     fetchBookmarks()

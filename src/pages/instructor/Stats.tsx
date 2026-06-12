@@ -24,6 +24,8 @@ interface KpStat {
   color: string
   total_questions: number
   correct_questions: number
+  total_submissions: number | null
+  total_students: number | null
   pass_rate: number
 }
 
@@ -61,8 +63,27 @@ export default function Stats() {
     }
   }
 
-  const handleExport = () => {
-    window.open('/api/stats/export', '_blank')
+  const handleExport = async () => {
+    const token = localStorage.getItem('token')
+    if (!token) return
+    try {
+      const res = await fetch('/api/stats/export', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'submissions.csv'
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      }
+    } catch (err) {
+      console.error('导出失败', err)
+    }
   }
 
   const barData = kpStats.map((kp) => ({
@@ -89,10 +110,16 @@ export default function Stats() {
         </button>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-4 gap-4 mb-6">
         <div className="bg-bg-secondary border border-border-dark rounded-xl p-5">
           <div className="text-xs text-text-secondary mb-1">总提交数</div>
           <div className="text-3xl font-display font-bold text-text-primary">{totalSubmissions}</div>
+        </div>
+        <div className="bg-bg-secondary border border-border-dark rounded-xl p-5">
+          <div className="text-xs text-text-secondary mb-1">学员总数</div>
+          <div className="text-3xl font-display font-bold text-text-primary">
+            {kpStats.reduce((s, k) => Math.max(s, k.total_students || 0), 0)}
+          </div>
         </div>
         <div className="bg-bg-secondary border border-border-dark rounded-xl p-5">
           <div className="text-xs text-text-secondary mb-1">整体通过率</div>
@@ -164,7 +191,8 @@ export default function Stats() {
               <th className="px-4 py-3 text-left text-xs font-medium text-accent-cyan uppercase">知识点</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-accent-cyan uppercase">分类</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-accent-cyan uppercase">题目数</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-accent-cyan uppercase">正确数</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-accent-cyan uppercase">提交数</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-accent-cyan uppercase">学员数</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-accent-cyan uppercase">通过率</th>
             </tr>
           </thead>
@@ -177,7 +205,8 @@ export default function Stats() {
                 </td>
                 <td className="px-4 py-2.5 text-text-secondary">{kp.category}</td>
                 <td className="px-4 py-2.5 text-text-primary">{kp.total_questions}</td>
-                <td className="px-4 py-2.5 text-text-primary">{kp.correct_questions}</td>
+                <td className="px-4 py-2.5 text-text-primary">{kp.total_submissions || 0}</td>
+                <td className="px-4 py-2.5 text-text-primary">{kp.total_students || 0}</td>
                 <td className="px-4 py-2.5">
                   <span style={{ color: getColor(kp.pass_rate) }} className="font-medium">
                     {kp.pass_rate}%

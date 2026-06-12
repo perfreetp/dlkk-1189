@@ -1,9 +1,13 @@
 import initSqlJs from 'sql.js'
 import path from 'path'
+import fs from 'fs'
 import bcrypt from 'bcryptjs'
 
 let systemDb: any = null
 let SQL: any = null
+
+const DB_DIR = path.join(process.cwd(), 'data')
+const DB_FILE = path.join(DB_DIR, 'system.db')
 
 export const PRACTICE_SETUP_SQL = `CREATE TABLE employees (id INTEGER PRIMARY KEY, name TEXT, department TEXT, salary REAL, hire_date TEXT);
 INSERT INTO employees VALUES (1,'张伟','技术部',15000,'2020-03-15');
@@ -20,6 +24,19 @@ INSERT INTO departments VALUES (3,'人事部','赵敏',200000);`
 
 export function getSystemDb(): any {
   return systemDb
+}
+
+export function saveSystemDb(): void {
+  if (!systemDb) return
+  try {
+    if (!fs.existsSync(DB_DIR)) {
+      fs.mkdirSync(DB_DIR, { recursive: true })
+    }
+    const data = systemDb.export()
+    fs.writeFileSync(DB_FILE, data)
+  } catch (err) {
+    console.error('保存数据库失败:', err)
+  }
 }
 
 export function getPracticeDb(setupSql?: string): any {
@@ -45,6 +62,21 @@ export function queryToArray(db: any, sql: string, params?: any[]): any[] {
 export async function initDatabase(): Promise<void> {
   const wasmPath = path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm')
   SQL = await initSqlJs({ locateFile: () => wasmPath })
+
+  if (!fs.existsSync(DB_DIR)) {
+    fs.mkdirSync(DB_DIR, { recursive: true })
+  }
+
+  if (fs.existsSync(DB_FILE)) {
+    try {
+      const data = fs.readFileSync(DB_FILE)
+      systemDb = new SQL.Database(data)
+      return
+    } catch (err) {
+      console.error('加载已有数据库失败，将重新创建:', err)
+    }
+  }
+
   systemDb = new SQL.Database()
 
   systemDb.run(`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('student','instructor')), created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`)
@@ -59,6 +91,7 @@ export async function initDatabase(): Promise<void> {
   systemDb.run(`CREATE TABLE IF NOT EXISTS user_progress (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, practice_set_id INTEGER NOT NULL, completed_count INTEGER DEFAULT 0, total_count INTEGER DEFAULT 0, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, practice_set_id));`)
 
   await seedData()
+  saveSystemDb()
 }
 
 async function seedData(): Promise<void> {

@@ -1,5 +1,5 @@
 import { Router, type Response } from 'express'
-import { getSystemDb, queryToArray } from '../database.js'
+import { getSystemDb, queryToArray, saveSystemDb } from '../database.js'
 import { authenticateToken, type AuthRequest } from '../middleware/auth.js'
 
 const router = Router()
@@ -38,6 +38,7 @@ router.delete('/:id', authenticateToken, (req: AuthRequest, res: Response): void
       return
     }
     db.run('DELETE FROM mistakes WHERE id = ?', [req.params.id])
+    saveSystemDb()
     res.json({ success: true, data: null })
   } catch (error) {
     res.status(500).json({ success: false, error: '删除错题失败' })
@@ -58,6 +59,7 @@ router.post('/:id/retry', authenticateToken, (req: AuthRequest, res: Response): 
     }
     db.run('UPDATE mistakes SET retry_count = retry_count + 1 WHERE id = ?', [req.params.id])
     const updated = queryToArray(db, 'SELECT * FROM mistakes WHERE id = ?', [req.params.id])
+    saveSystemDb()
     res.json({ success: true, data: updated[0] })
   } catch (error) {
     res.status(500).json({ success: false, error: '重试操作失败' })

@@ -1,5 +1,5 @@
 import { Router, type Response } from 'express'
-import { getSystemDb, getPracticeDb, queryToArray } from '../database.js'
+import { getSystemDb, getPracticeDb, queryToArray, saveSystemDb } from '../database.js'
 import { authenticateToken, type AuthRequest } from '../middleware/auth.js'
 
 const router = Router()
@@ -46,14 +46,26 @@ router.post('/submit', authenticateToken, (req: AuthRequest, res: Response): voi
     }
 
     if (execError) {
-      db.run(
-        'INSERT INTO submissions (user_id, question_id, sql_text, result_json, is_correct, duration_ms) VALUES (?, ?, ?, ?, ?, ?)',
-        [req.user.id, question_id, sql_text, null, 0, duration_ms || 0]
+      const stmt = db.prepare(
+        'INSERT INTO submissions (user_id, question_id, sql_text, result_json, is_correct, duration_ms) VALUES (?, ?, ?, ?, ?, ?)'
       )
-      db.run(
-        'INSERT INTO mistakes (user_id, question_id, error_type) VALUES (?, ?, ?)',
-        [req.user.id, question_id, 'syntax_error']
+      stmt.bind([req.user.id, question_id, sql_text, null, 0, duration_ms || 0])
+      stmt.step()
+      stmt.free()
+
+      const existingMistakes = queryToArray(
+        db,
+        'SELECT * FROM mistakes WHERE user_id = ? AND question_id = ? AND is_resolved = 0',
+        [req.user.id, question_id]
       )
+      if (existingMistakes.length === 0) {
+        db.run(
+          'INSERT INTO mistakes (user_id, question_id, error_type) VALUES (?, ?, ?)',
+          [req.user.id, question_id, 'syntax_error']
+        )
+      }
+
+      saveSystemDb()
       res.json({ success: true, data: { is_correct: false, error: execError, results: [] } })
       return
     }
@@ -79,36 +91,71 @@ router.post('/submit', authenticateToken, (req: AuthRequest, res: Response): voi
     )
 
     if (!isCorrect) {
-      const existingMistakes = queryToArray(db, 'SELECT * FROM mistakes WHERE user_id = ? AND question_id = ? AND is_resolved = 0', [req.user.id, question_id])
+      const existingMistakes = queryToArray(
+        db,
+        'SELECT * FROM mistakes WHERE user_id = ? AND question_id = ? AND is_resolved = 0',
+        [req.user.id, question_id]
+      )
       if (existingMistakes.length === 0) {
-        db.run('INSERT INTO mistakes (user_id, question_id, error_type) VALUES (?, ?, ?)', [req.user.id, question_id, 'wrong_result'])
-      }
-    } else {
-      db.run('UPDATE mistakes SET is_resolved = 1 WHERE user_id = ? AND question_id = ? AND is_resolved = 0', [req.user.id, question_id])
-
-      const progress = queryToArray(db, 'SELECT * FROM user_progress WHERE user_id = ? AND practice_set_id = ?', [req.user.id, question.practice_set_id])
-      const totalQ = queryToArray(db, 'SELECT COUNT(*) as cnt FROM questions WHERE practice_set_id = ?', [question.practice_set_id])
-      if (progress.length > 0) {
-        const correctCount = queryToArray(db, 'SELECT COUNT(DISTINCT question_id) as cnt FROM submissions WHERE user_id = ? AND practice_set_id = ? AND is_correct = 1', [req.user.id, question.practice_set_id])
-
-        const newCompleted = queryToArray(
-          db,
-          'SELECT COUNT(DISTINCT question_id) as cnt FROM submissions WHERE user_id = ? AND question_id IN (SELECT id FROM questions WHERE practice_set_id = ?) AND is_correct = 1',
-          [req.user.id, question.practice_set_id]
-        )
-        db.run('UPDATE user_progress SET completed_count = ?, total_count = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND practice_set_id = ?',
-          [newCompleted[0].cnt, totalQ[0].cnt, req.user.id, question.practice_set_id]
+        db.run(
+          'INSERT INTO mistakes (user_id, question_id, error_type) VALUES (?, ?, ?)',
+          [req.user.id, question_id, 'wrong_result']
         )
       } else {
-        db.run('INSERT INTO user_progress (user_id, practice_set_id, completed_count, total_count) VALUES (?, ?, 1, ?)',
-          [req.user.id, question.practice_set_id, totalQ[0].cnt]
+        db.run(
+          'UPDATE mistakes SET retry_count = retry_count + 1 WHERE id = ?',
+          [existingMistakes[0].id]
         )
       }
+    } else {
+      db.run(
+        'UPDATE mistakes SET is_resolved = 1 WHERE user_id = ? AND question_id = ? AND is_resolved = 0',
+        [req.user.id, question_id]
+      )
     }
 
-    res.json({ success: true, data: { is_correct: isCorrect, results: userResults, reference_result: referenceResult } })
-  } catch (error) {
-    res.status(500).json({ success: false, error: '提交失败' })
+    const totalQ = queryToArray(
+      db,
+      'SELECT COUNT(*) as cnt FROM questions WHERE practice_set_id = ?',
+      [question.practice_set_id]
+    )
+
+    const correctCountRows = queryToArray(
+      db,
+      `SELECT COUNT(DISTINCT question_id) as cnt 
+       FROM submissions 
+       WHERE user_id = ? 
+         AND question_id IN (SELECT id FROM questions WHERE practice_set_id = ?) 
+         AND is_correct = 1`,
+      [req.user.id, question.practice_set_id]
+    )
+
+    const completed = correctCountRows[0]?.cnt || 0
+    const total = totalQ[0]?.cnt || 0
+
+    const existingProgress = queryToArray(
+      db,
+      'SELECT * FROM user_progress WHERE user_id = ? AND practice_set_id = ?',
+      [req.user.id, question.practice_set_id]
+    )
+
+    if (existingProgress.length > 0) {
+      db.run(
+        'UPDATE user_progress SET completed_count = ?, total_count = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND practice_set_id = ?',
+        [completed, total, req.user.id, question.practice_set_id]
+      )
+    } else {
+      db.run(
+        'INSERT INTO user_progress (user_id, practice_set_id, completed_count, total_count) VALUES (?, ?, ?, ?)',
+        [req.user.id, question.practice_set_id, completed, total]
+      )
+    }
+
+    saveSystemDb()
+    res.json({ success: true, data: { is_correct: isCorrect, results: userResults, reference_result: referenceResult, completed_count: completed, total_count: total } })
+  } catch (error: any) {
+    console.error('Submit error:', error)
+    res.status(500).json({ success: false, error: '提交失败：' + (error.message || '未知错误') })
   }
 })
 

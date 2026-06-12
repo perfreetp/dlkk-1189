@@ -1,5 +1,5 @@
 import { Router, type Response } from 'express'
-import { getSystemDb, queryToArray } from '../database.js'
+import { getSystemDb, queryToArray, saveSystemDb } from '../database.js'
 import { authenticateToken, type AuthRequest } from '../middleware/auth.js'
 
 const router = Router()
@@ -77,6 +77,7 @@ router.post('/batch-review', authenticateToken, (req: AuthRequest, res: Response
     for (const review of reviews) {
       db.run('UPDATE submissions SET score = ?, instructor_comment = ? WHERE id = ?', [review.score, review.instructor_comment, review.id])
     }
+    saveSystemDb()
     res.json({ success: true, data: { updated: reviews.length } })
   } catch (error) {
     res.status(500).json({ success: false, error: '批量批改失败' })
